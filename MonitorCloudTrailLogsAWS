@@ -1,0 +1,74 @@
+import boto3
+import datetime
+import re
+
+# Specify the AWS region and CloudTrail log group name
+region = 'us-west-2'
+log_group_name = '/aws/cloudtrail/<your-cloudtrail-trail-name>'
+
+# Specify the regular expressions to match suspicious activity
+ip_address_regex = re.compile(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}')
+s3_bucket_regex = re.compile(r's3:[\/]{2}([^\/]+)[\/]?')
+
+# Specify the start time for the log query (24 hours ago)
+start_time = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+
+# Create a CloudWatch Logs client
+logs_client = boto3.client('logs', region_name=region)
+
+# Create a CloudTrail client
+cloudtrail_client = boto3.client('cloudtrail', region_name=region)
+
+# Get the CloudTrail trail ARN
+response = cloudtrail_client.describe_trails(
+    trailNameList=['<your-cloudtrail-trail-name>']
+)
+trail_arn = response['trailList'][0]['TrailARN']
+
+# Define a function to search for suspicious activity in a CloudTrail event
+def search_event(event):
+    # Check if the event matches any of the suspicious activity patterns
+    if (ip_address_regex.search(str(event)) or
+            s3_bucket_regex.search(str(event))):
+        return True
+    else:
+        return False
+
+# Define a function to get the latest CloudTrail events
+def get_latest_events():
+    # Get the latest CloudTrail log events
+    response = logs_client.filter_log_events(
+        logGroupName=log_group_name,
+        startTime=int(start_time.timestamp()) * 1000,
+        filterPattern='CloudTrail',
+    )
+    events = response['events']
+
+    # Search the events for suspicious activity
+    suspicious_events = []
+    for event in events:
+        if search_event(event):
+            suspicious_events.append(event)
+
+    return suspicious_events
+
+# Define a function to send an email alert for suspicious activity
+def send_alert(suspicious_events):
+    # Send an email alert using your preferred email sending method
+    # You can use the AWS SDK for Python (Boto3) to send emails via SES or SNS, for example
+
+    print(f'Found {len(suspicious_events)} suspicious CloudTrail events:')
+    for event in suspicious_events:
+        print(event['message'])
+
+# Main function
+def main():
+    # Get the latest CloudTrail events
+    suspicious_events = get_latest_events()
+
+    # Send an email alert if there are any suspicious events
+    if suspicious_events:
+        send_alert(suspicious_events)
+
+if __name__ == '__main__':
+    main()
